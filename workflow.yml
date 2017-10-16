@@ -1,0 +1,49 @@
+---
+version: '2.0'
+
+autosnap:
+  type: direct
+
+  input:
+    - volume_id
+    - name
+    - search_opts
+    - sort
+    - num
+    - to_addrs
+
+  tasks:
+    create_snapshot:
+      action: cinder.volume_snapshots_create volume_id=<% $.volume_id %> name='<% $.name %>' force='true'
+      on-success:
+        list_snapshot
+      on-error:
+        send_error_email
+
+    list_snapshot:
+      action: cinder.volume_snapshots_list search_opts=<% $.search_opts %> sort=<% $.sort %> 
+      on-success:
+        remove_last_one
+
+    remove_last_one:
+      action: cinder.volume_snapshots_delete snapshot=<% task(list_snapshot).result[$.num].id %>
+      wait-after: 5
+      on-error:
+        list_snapshot 
+
+    send_error_email:
+      action: std.email
+      input:
+        to_addrs: [<% $.to_addrs %>]
+        smtp_server: "smtp.exmail.qq.com:25"
+        from_addr: "cloud_service@neunn.com"
+        subject: "定时快照任务执行失败-云硬盘ID <% $.volume_id %>"
+        body: |
+            本邮件由东网云平台发送，自动快照以下云硬盘创建快照出现错误，
+            请将以下信息反馈给管理员进行处理：
+            云硬盘ID：<% $.volume_id %>.
+
+            错误信息：
+            ---------------------------------
+            <% task(create_snapshot).result %>
+        smtp_password: "CloudAdmin123"
